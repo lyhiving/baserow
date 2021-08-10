@@ -10,7 +10,6 @@ from dateutil.parser import ParserError
 from django.contrib.postgres.fields import JSONField
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
-from django.core.validators import URLValidator
 from django.db import models
 from django.db.models import Case, When, Q, F, Func, Value, CharField
 from django.db.models.expressions import RawSQL
@@ -40,7 +39,7 @@ from .exceptions import (
     IncompatiblePrimaryFieldTypeError,
 )
 from .field_filters import contains_filter, AnnotatedQ, filename_contains_filter
-from .fields import SingleSelectForeignKey, URLTextField
+from .fields import SingleSelectForeignKey
 from .handler import FieldHandler
 from .models import (
     NUMBER_TYPE_INTEGER,
@@ -61,15 +60,15 @@ from .models import (
 from .registries import FieldType, field_type_registry
 
 
-class CharFieldMatchingRegexFieldType(FieldType, ABC):
+class TextFieldMatchingRegexFieldType(FieldType, ABC):
     """
-    This is an abstract FieldType you can extend to create a field which is a CharField
-    but restricted to only allow values passing a regex. Please implement the regex,
-    max_length and random_value properties.
+    This is an abstract FieldType you can extend to create a field which is a TextField
+    but restricted to only allow values passing a regex. Please implement the
+    regex and random_value properties.
 
     This abstract class will then handle all the various places that this regex needs to
     be used:
-        - by setting the char field's validator
+        - by setting the text field's validator
         - by setting the serializer field's validator
         - checking values passed to prepare_value_for_db pass the regex
         - by checking and only converting column values which match the regex when
@@ -82,19 +81,14 @@ class CharFieldMatchingRegexFieldType(FieldType, ABC):
         pass
 
     @property
-    @abstractmethod
-    def max_length(self):
-        return None
-
-    @property
     def validator(self):
         return UnicodeRegexValidator(regex_value=self.regex)
 
     def prepare_value_for_db(self, instance, value):
         if value == "" or value is None:
             return ""
-        self.validator(value)
 
+        self.validator(value)
         return value
 
     def get_serializer_field(self, instance, **kwargs):
@@ -107,17 +101,15 @@ class CharFieldMatchingRegexFieldType(FieldType, ABC):
                 "allow_null": not required,
                 "allow_blank": not required,
                 "validators": validators,
-                "max_length": self.max_length,
                 **kwargs,
             }
         )
 
     def get_model_field(self, instance, **kwargs):
-        return models.CharField(
+        return models.TextField(
             default="",
             blank=True,
             null=True,
-            max_length=self.max_length,
             validators=[self.validator],
             **kwargs,
         )
@@ -138,6 +130,41 @@ class CharFieldMatchingRegexFieldType(FieldType, ABC):
 
     def contains_query(self, *args):
         return contains_filter(*args)
+
+
+class CharFieldMatchingRegexFieldType(TextFieldMatchingRegexFieldType):
+    """
+    This is an abstract FieldType you can extend to create a field which is a CharField
+    with a specific max length, but restricted to only allow values passing a regex.
+    Please implement the regex, max_length and random_value properties.
+
+    This abstract class will then handle all the various places that this regex needs to
+    be used:
+        - by setting the char field's validator
+        - by setting the serializer field's validator
+        - checking values passed to prepare_value_for_db pass the regex
+        - by checking and only converting column values which match the regex when
+          altering a column to being an email type.
+    """
+
+    @property
+    @abstractmethod
+    def max_length(self):
+        return None
+
+    def get_serializer_field(self, instance, **kwargs):
+        kwargs = {"max_length": self.max_length, **kwargs}
+        return super().get_serializer_field(instance, **kwargs)
+
+    def get_model_field(self, instance, **kwargs):
+        return models.CharField(
+            default="",
+            blank=True,
+            null=True,
+            max_length=self.max_length,
+            validators=[self.validator],
+            **kwargs,
+        )
 
 
 class TextFieldType(FieldType):
@@ -195,51 +222,19 @@ class LongTextFieldType(FieldType):
         return contains_filter(*args)
 
 
-class URLFieldType(FieldType):
+class URLFieldType(TextFieldMatchingRegexFieldType):
     type = "url"
     model_class = URLField
 
-    def prepare_value_for_db(self, instance, value):
-        if value == "" or value is None:
-            return ""
-
-        validator = URLValidator()
-        validator(value)
-        return value
-
-    def get_serializer_field(self, instance, **kwargs):
-        required = kwargs.get("required", False)
-        return serializers.URLField(
-            **{
-                "required": required,
-                "allow_null": not required,
-                "allow_blank": not required,
-                **kwargs,
-            }
-        )
-
-    def get_model_field(self, instance, **kwargs):
-        return URLTextField(default="", blank=True, null=True, **kwargs)
+    @property
+    def regex(self):
+        # A very lenient URL validator that allows all types of URLs as long as it
+        # respects the maximal amount of characters before the dot at at least have
+        # one character after the dot.
+        return r"^[^\s]{0,255}(?:\.|//)[^\s]{1,}$"
 
     def random_value(self, instance, fake, cache):
         return fake.url()
-
-    def get_alter_column_prepare_new_value(self, connection, from_field, to_field):
-        if connection.vendor == "postgresql":
-            return r"""p_in = (
-            case
-                when p_in::text ~* '(https?|ftps?)://(-\.)?([^\s/?\.#-]+\.?)+(/[^\s]*)?'
-                then p_in::text
-                else ''
-                end
-            );"""
-
-        return super().get_alter_column_prepare_new_value(
-            connection, from_field, to_field
-        )
-
-    def contains_query(self, *args):
-        return contains_filter(*args)
 
 
 class NumberFieldType(FieldType):
@@ -313,13 +308,13 @@ class NumberFieldType(FieldType):
     def random_value(self, instance, fake, cache):
         if instance.number_type == NUMBER_TYPE_INTEGER:
             return fake.pyint(
-                min_value=-10000 if instance.number_negative else 0,
+                min_value=-10000 if instance.number_negative else 1,
                 max_value=10000,
                 step=1,
             )
         elif instance.number_type == NUMBER_TYPE_DECIMAL:
             return fake.pydecimal(
-                min_value=-10000 if instance.number_negative else 0,
+                min_value=-10000 if instance.number_negative else 1,
                 max_value=10000,
                 positive=not instance.number_negative,
             )
@@ -846,17 +841,8 @@ class LinkRowFieldType(FieldType):
         if field.link_row_related_field:
             return
 
-        handler = FieldHandler()
-        # First just try the tables name, so if say the Client table is linking to the
-        # Address table, this field in the Address table will just be called 'Client'.
-        # However say we then add another link from the Client to Address table with
-        # a field name of "Bank Address", the new field in the Address table will be
-        # called 'Client - Bank Address'.
-        related_field_name = handler.find_next_unused_field_name(
-            field.link_row_table,
-            [f"{field.table.name}", f"{field.table.name} - {field.name}"],
-        )
-        field.link_row_related_field = handler.create_field(
+        related_field_name = self.find_next_unused_related_field_name(field)
+        field.link_row_related_field = FieldHandler().create_field(
             user=user,
             table=field.link_row_table,
             type_name=self.type,
@@ -867,6 +853,18 @@ class LinkRowFieldType(FieldType):
             link_row_relation_id=field.link_row_relation_id,
         )
         field.save()
+
+    # noinspection PyMethodMayBeStatic
+    def find_next_unused_related_field_name(self, field):
+        # First just try the tables name, so if say the Client table is linking to the
+        # Address table, this field in the Address table will just be called 'Client'.
+        # However say we then add another link from the Client to Address table with
+        # a field name of "Bank Address", the new field in the Address table will be
+        # called 'Client - Bank Address'.
+        return FieldHandler().find_next_unused_field_name(
+            field.link_row_table,
+            [f"{field.table.name}", f"{field.table.name} - {field.name}"],
+        )
 
     def before_schema_change(
         self,
@@ -889,7 +887,8 @@ class LinkRowFieldType(FieldType):
         ):
             # If the table has changed we have to change the following data in the
             # related field
-            from_field.link_row_related_field.name = to_field.table.name
+            related_field_name = self.find_next_unused_related_field_name(to_field)
+            from_field.link_row_related_field.name = related_field_name
             from_field.link_row_related_field.table = to_field.link_row_table
             from_field.link_row_related_field.link_row_table = to_field.table
             from_field.link_row_related_field.order = self.model_class.get_last_order(
@@ -916,12 +915,13 @@ class LinkRowFieldType(FieldType):
         if not isinstance(from_field, self.model_class) and isinstance(
             to_field, self.model_class
         ):
+            related_field_name = self.find_next_unused_related_field_name(to_field)
             to_field.link_row_related_field = FieldHandler().create_field(
                 user=user,
                 table=to_field.link_row_table,
                 type_name=self.type,
                 do_schema_change=False,
-                name=to_field.table.name,
+                name=related_field_name,
                 link_row_table=to_field.table,
                 link_row_related_field=to_field,
                 link_row_relation_id=to_field.link_row_relation_id,

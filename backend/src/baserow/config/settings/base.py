@@ -146,17 +146,10 @@ USER_TABLE_DATABASE = "default"
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        "NAME": "django.contrib.auth.password_validation."
-        "UserAttributeSimilarityValidator",
-    },
-    {
         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
+        "NAME": "baserow.core.user.password_validation.MaximumLengthValidator",
     },
 ]
 
@@ -217,7 +210,7 @@ SPECTACULAR_SETTINGS = {
         "name": "MIT",
         "url": "https://gitlab.com/bramw/baserow/-/blob/master/LICENSE",
     },
-    "VERSION": "1.4.1",
+    "VERSION": "1.4.3",
     "SERVE_INCLUDE_SCHEMA": False,
     "TAGS": [
         {"name": "Settings"},
@@ -241,8 +234,6 @@ SPECTACULAR_SETTINGS = {
         {"name": "Admin"},
     ],
 }
-
-DATABASE_ROUTERS = ("baserow.contrib.database.database_routers.TablesDatabaseRouter",)
 
 # The storage must always overwrite existing files.
 DEFAULT_FILE_STORAGE = "baserow.core.storage.OverwriteFileSystemStorage"
@@ -269,6 +260,7 @@ FROM_EMAIL = os.getenv("FROM_EMAIL", "no-reply@localhost")
 RESET_PASSWORD_TOKEN_MAX_AGE = 60 * 60 * 48  # 48 hours
 ROW_PAGE_SIZE_LIMIT = 200  # How many rows can be requested at once.
 TRASH_PAGE_SIZE_LIMIT = 200  # How many trash entries can be requested at once.
+ROW_COMMENT_PAGE_SIZE_LIMIT = 200  # How many row comments can be requested at once.
 
 # The amount of rows that can be imported when creating a table.
 INITIAL_TABLE_DATA_LIMIT = None
@@ -324,3 +316,5 @@ HOURS_UNTIL_TRASH_PERMANENTLY_DELETED = os.getenv(
     "HOURS_UNTIL_TRASH_PERMANENTLY_DELETED", 24 * 3
 )
 OLD_TRASH_CLEANUP_CHECK_INTERVAL_MINUTES = 5
+
+MAX_ROW_COMMENT_LENGTH = 10000
