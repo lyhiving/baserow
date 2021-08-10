@@ -137,8 +137,4 @@ fabric.properties
 # Editor-based Rest Client
 .idea/httpRequests
 
-# Ignore changes to iml files unless forced as when devs set things like SDK paths it
-# changes the iml files and we don't want to share their specific ones.
-*.iml
-
 .vagrant/
