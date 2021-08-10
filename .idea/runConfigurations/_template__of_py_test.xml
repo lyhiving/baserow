@@ -9,7 +9,7 @@
       <env name="DJANGO_SETTINGS_MODULE" value="baserow.config.settings.test" />
       <env name="ADDITIONAL_APPS" value="baserow_premium" />
     </envs>
-    <option name="SDK_HOME" value="$PROJECT_DIR$/../../venvs/baserow_venv/bin/python" />
+    <option name="SDK_HOME" value="" />
     <option name="WORKING_DIRECTORY" value="" />
     <option name="IS_MODULE_SDK" value="false" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
