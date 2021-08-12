@@ -20,6 +20,7 @@ import FieldService from '@baserow/modules/database/services/field'
 import { populateField } from '@baserow/modules/database/store/field'
 import ViewService from '@baserow/modules/database/services/view'
 import { populateView } from '@baserow/modules/database/store/view'
+import { Mutex } from 'async-mutex'
 
 export default {
   name: 'TableTemplate',
@@ -40,6 +41,7 @@ export default {
       selectedViewId: null,
       view: {},
       tableLoading: true,
+      mutex: new Mutex(),
     }
   },
   watch: {
@@ -56,40 +58,47 @@ export default {
      * database and table.
      */
     async fetchTable(database, table) {
-      this.tableLoading = true
-      this.database = database
-      this.table = table
+      const release = await this.mutex.acquire()
+      try {
+        this.tableLoading = true
+        this.database = database
+        this.table = table
 
-      // Fetch and prepare the fields of the given table. The primary field is
-      // extracted from the array and moved to a separate object because that is what
-      // the `Table` components expects.
-      const { data: fieldsData } = await FieldService(this.$client).fetchAll(
-        table.id
-      )
-      fieldsData.forEach((part, index, d) => {
-        populateField(fieldsData[index], this.$registry)
-      })
-      const primaryIndex = fieldsData.findIndex((item) => item.primary === true)
-      const primary =
-        primaryIndex !== -1 ? fieldsData.splice(primaryIndex, 1)[0] : null
-      this.fields = fieldsData
-      this.primary = primary
+        // Fetch and prepare the fields of the given table. The primary field is
+        // extracted from the array and moved to a separate object because that is what
+        // the `Table` components expects.
+        const { data: fieldsData } = await FieldService(this.$client).fetchAll(
+          table.id
+        )
+        fieldsData.forEach((part, index, d) => {
+          populateField(fieldsData[index], this.$registry)
+        })
+        const primaryIndex = fieldsData.findIndex(
+          (item) => item.primary === true
+        )
+        const primary =
+          primaryIndex !== -1 ? fieldsData.splice(primaryIndex, 1)[0] : null
+        this.fields = fieldsData
+        this.primary = primary
 
-      // Fetch and prepare the views of the given table.
-      const { data: viewsData } = await ViewService(this.$client).fetchAll(
-        table.id,
-        true,
-        true
-      )
-      viewsData.forEach((part, index, d) => {
-        populateView(viewsData[index], this.$registry)
-      })
-      this.views = viewsData
+        // Fetch and prepare the views of the given table.
+        const { data: viewsData } = await ViewService(this.$client).fetchAll(
+          table.id,
+          true,
+          true
+        )
+        viewsData.forEach((part, index, d) => {
+          populateView(viewsData[index], this.$registry)
+        })
+        this.views = viewsData
 
-      // After selecting the table, the user expects to see the table data and that is
-      // only possible if a view is selected. By calling the `selectView` method
-      // without parameters, the first view is selected.
-      await this.selectView()
+        // After selecting the table, the user expects to see the table data and that is
+        // only possible if a view is selected. By calling the `selectView` method
+        // without parameters, the first view is selected.
+        await this.selectView()
+      } finally {
+        release()
+      }
     },
     /**
      * Selects the view with the given `viewId`. If no `viewId` is provided, then the
