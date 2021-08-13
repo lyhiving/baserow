@@ -9,7 +9,7 @@
     :table-loading="tableLoading"
     :read-only="true"
     store-prefix="template/"
-    @selected-view="selectView($event.id)"
+    @selected-view="selectView({ viewId: $event.id })"
   ></Table>
 </template>
 
@@ -53,85 +53,96 @@ export default {
     this.fetchTable(this.pageValue.database, this.pageValue.table)
   },
   methods: {
+    async runExclusiveUnlessAlreadyLocked({ callback, alreadyLocked = false }) {
+      if (alreadyLocked) {
+        return await callback()
+      } else {
+        return await this.mutex.runExclusive(callback)
+      }
+    },
     /**
      * Fetches and prepares all the table, field and view data for the provided
      * database and table.
      */
     async fetchTable(database, table) {
-      const release = await this.mutex.acquire()
-      try {
-        this.tableLoading = true
-        this.database = database
-        this.table = table
+      await this.runExclusiveUnlessAlreadyLocked({
+        callback: async () => {
+          this.tableLoading = true
+          this.database = database
+          this.table = table
 
-        // Fetch and prepare the fields of the given table. The primary field is
-        // extracted from the array and moved to a separate object because that is what
-        // the `Table` components expects.
-        const { data: fieldsData } = await FieldService(this.$client).fetchAll(
-          table.id
-        )
-        fieldsData.forEach((part, index, d) => {
-          populateField(fieldsData[index], this.$registry)
-        })
-        const primaryIndex = fieldsData.findIndex(
-          (item) => item.primary === true
-        )
-        const primary =
-          primaryIndex !== -1 ? fieldsData.splice(primaryIndex, 1)[0] : null
-        this.fields = fieldsData
-        this.primary = primary
+          // Fetch and prepare the fields of the given table. The primary field is
+          // extracted from the array and moved to a separate object because that is what
+          // the `Table` components expects.
+          const { data: fieldsData } = await FieldService(
+            this.$client
+          ).fetchAll(table.id)
+          fieldsData.forEach((part, index, d) => {
+            populateField(fieldsData[index], this.$registry)
+          })
+          const primaryIndex = fieldsData.findIndex(
+            (item) => item.primary === true
+          )
+          const primary =
+            primaryIndex !== -1 ? fieldsData.splice(primaryIndex, 1)[0] : null
+          this.fields = fieldsData
+          this.primary = primary
 
-        // Fetch and prepare the views of the given table.
-        const { data: viewsData } = await ViewService(this.$client).fetchAll(
-          table.id,
-          true,
-          true
-        )
-        viewsData.forEach((part, index, d) => {
-          populateView(viewsData[index], this.$registry)
-        })
-        this.views = viewsData
+          // Fetch and prepare the views of the given table.
+          const { data: viewsData } = await ViewService(this.$client).fetchAll(
+            table.id,
+            true,
+            true
+          )
+          viewsData.forEach((part, index, d) => {
+            populateView(viewsData[index], this.$registry)
+          })
+          this.views = viewsData
 
-        // After selecting the table, the user expects to see the table data and that is
-        // only possible if a view is selected. By calling the `selectView` method
-        // without parameters, the first view is selected.
-        await this.selectView()
-      } finally {
-        release()
-      }
+          // After selecting the table, the user expects to see the table data and that is
+          // only possible if a view is selected. By calling the `selectView` method
+          // without parameters, the first view is selected.
+          await this.selectView({ alreadyLocked: true })
+        },
+      })
     },
     /**
      * Selects the view with the given `viewId`. If no `viewId` is provided, then the
      * first view will be selected.
      */
-    async selectView(viewId = null) {
-      this.tableLoading = true
+    async selectView({ viewId = null, alreadyLocked = false }) {
+      await this.runExclusiveUnlessAlreadyLocked({
+        alreadyLocked,
+        callback: async () => {
+          this.tableLoading = true
 
-      // If no viewId is provided, we want to select the first the first view.
-      const firstView = this.views.length > 0 ? this.views[0] : null
-      if (viewId === null && firstView !== null) {
-        viewId = firstView.id
-      }
+          // If no viewId is provided, we want to select the first the first view.
+          const firstView = this.views.length > 0 ? this.views[0] : null
+          if (viewId === null && firstView !== null) {
+            viewId = firstView.id
+          }
 
-      // Update the selected state in all the views.
-      this.views.forEach((view) => {
-        view._.selected = view.id === viewId
+          // Update the selected state in all the views.
+          this.views.forEach((view) => {
+            view._.selected = view.id === viewId
+          })
+
+          const view = this.views.find((item) => item.id === viewId)
+          this.view = view
+
+          // It might be possible that the view also has some stores that need to be
+          // filled with initial data, so we're going to call the fetch function here.
+          const type = this.$registry.get('view', view.type)
+          await type.fetch(
+            { store: this.$store },
+            view,
+            this.fields,
+            this.primary,
+            'template/'
+          )
+          this.tableLoading = false
+        },
       })
-
-      const view = this.views.find((item) => item.id === viewId)
-      this.view = view
-
-      // It might be possible that the view also has some stores that need to be
-      // filled with initial data, so we're going to call the fetch function here.
-      const type = this.$registry.get('view', view.type)
-      await type.fetch(
-        { store: this.$store },
-        view,
-        this.fields,
-        this.primary,
-        'template/'
-      )
-      this.tableLoading = false
     },
   },
 }
