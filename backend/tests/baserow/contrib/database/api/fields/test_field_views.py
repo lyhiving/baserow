@@ -453,7 +453,6 @@ def test_update_field(api_client, data_fixture):
         format="json",
         HTTP_AUTHORIZATION=f"JWT" f" {token}",
     )
-    print("HIER RESP: ", response.json())
     assert response.status_code == HTTP_400_BAD_REQUEST
     assert response.json()["error"] == "ERROR_REQUEST_BODY_VALIDATION"
 
