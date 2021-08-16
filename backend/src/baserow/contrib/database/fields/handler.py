@@ -21,6 +21,7 @@ from .exceptions import (
     FieldWithSameNameAlreadyExists,
     ReservedBaserowFieldNameException,
     InvalidBaserowFieldName,
+    MaxFieldNameLengthExceeded,
 )
 from .models import Field, SelectOption
 from .registries import field_type_registry, field_converter_registry
@@ -51,6 +52,7 @@ def _validate_field_name(
         name key is not in field_values. When False does not return and immediately
         returns if the key is missing.
     :raises InvalidBaserowFieldName: If "name" is
+    :raises MaxFieldNameLengthExceeded: When a provided field name is too long.
     :return:
     """
     if "name" not in field_values:
@@ -62,6 +64,10 @@ def _validate_field_name(
     name = field_values["name"]
     if existing_field is not None and existing_field.name == name:
         return
+
+    max_field_name_length = Field._meta.get_field("name").max_length
+    if len(name) > max_field_name_length:
+        raise MaxFieldNameLengthExceeded()
 
     if name.strip() == "":
         raise InvalidBaserowFieldName()

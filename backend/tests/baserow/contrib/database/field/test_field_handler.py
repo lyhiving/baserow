@@ -9,6 +9,7 @@ from faker import Faker
 
 from baserow.contrib.database.fields.exceptions import (
     FieldTypeDoesNotExist,
+    MaxFieldNameLengthExceeded,
     PrimaryFieldAlreadyExists,
     CannotDeletePrimaryField,
     FieldDoesNotExist,
@@ -279,6 +280,27 @@ def test_create_field(send_mock, data_fixture):
     with pytest.raises(FieldTypeDoesNotExist):
         handler.create_field(user=user, table=table, type_name="UNKNOWN")
 
+    too_long_field_name = "x" * 256
+    field_name_with_ok_length = "x" * 255
+
+    with pytest.raises(MaxFieldNameLengthExceeded):
+        handler.create_field(
+            user=user,
+            table=table,
+            type_name="text",
+            name=too_long_field_name,
+            text_default="Some default",
+        )
+
+    field_with_max_length_name = handler.create_field(
+        user=user,
+        table=table,
+        type_name="text",
+        name=field_name_with_ok_length,
+        text_default="Some default",
+    )
+    assert getattr(field_with_max_length_name, "name") == field_name_with_ok_length
+
 
 @pytest.mark.django_db
 def test_create_primary_field(data_fixture):
@@ -428,6 +450,24 @@ def test_update_field(send_mock, data_fixture):
     field_2 = data_fixture.create_text_field(table=table, order=1)
     with pytest.raises(FieldWithSameNameAlreadyExists):
         handler.update_field(user=user, field=field_2, name=field.name)
+
+    too_long_field_name = "x" * 256
+    field_name_with_ok_length = "x" * 255
+
+    field_3 = data_fixture.create_text_field(table=table)
+    with pytest.raises(MaxFieldNameLengthExceeded):
+        handler.update_field(
+            user=user,
+            field=field_3,
+            name=too_long_field_name,
+        )
+
+    field_with_max_length_name = handler.update_field(
+        user=user,
+        field=field_3,
+        name=field_name_with_ok_length,
+    )
+    assert getattr(field_with_max_length_name, "name") == field_name_with_ok_length
 
 
 @pytest.mark.django_db
